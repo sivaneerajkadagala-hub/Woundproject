@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: wound_postgres
+    environment:
+      POSTGRES_USER: wound_user
+      POSTGRES_PASSWORD: wound_password_2026
+      POSTGRES_DB: wound_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wound_user -d wound_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: wound_backend
+    environment:
+      DATABASE_URL: postgresql://wound_user:wound_password_2026@postgres:5432/wound_db
+      SECRET_KEY: wound-ai-super-secret-jwt-key-change-in-production-2026
+      STORAGE_DIR: /app/storage
+      AIMESH_BASE_URL: ${AIMESH_BASE_URL}
+      AIMESH_API_KEY: ${AIMESH_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: wound_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
