@@ -24,10 +24,10 @@ AI Wound Segmentation & Healing Monitoring System. Backend in FastAPI (Python), 
 ### Backend
 ```powershell
 cd backend
-.\venv\Scripts\python.exe -m pytest tests/ -v          # Run all backend tests
-.\venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000  # Start dev server
-.\venv\Scripts\python.exe -m alembic upgrade head      # Apply migrations
-.\venv\Scripts\python.exe -m alembic revision --autogenerate -m "desc"  # Create migration
+.\.venv\Scripts\python.exe -m pytest tests/ -v          # Run all backend tests
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001  # Start dev server
+.\.venv\Scripts\python.exe -m alembic upgrade head      # Apply migrations
+.\.venv\Scripts\python.exe -m alembic revision --autogenerate -m "desc"  # Create migration
 ```
 
 ### Frontend
