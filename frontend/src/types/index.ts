@@ -54,12 +54,15 @@ export interface AssessmentDetail {
   is_automatic_calibration: boolean;
   confidence_score: number;
   wound_pixel_area: number;
+  segmentation_method: string;
   area_mm2: number;
   area_cm2: number;
   width_mm: number;
   height_mm: number;
   percentage_change?: number;
   healing_status: 'Baseline' | 'Improving' | 'Stable' | 'Increasing';
+  requires_clinical_review?: boolean;
+  clinical_review_notice?: string;
 }
 
 export interface HealingHistoryPoint {
@@ -90,4 +93,11 @@ export interface DashboardSummary {
     percentage_change?: number;
     healing_status: string;
   }>;
+}
+
+export interface HealingTrendPoint {
+  visit_number: number;
+  label: string;
+  avg_area_mm2: number;
+  date: string | null;
 }

@@ -11,7 +11,10 @@ from app.services.seed_service import seed_synthetic_demo_data
 from app.models.patient import Patient
 from app.models.wound import WoundCase
 from app.models.assessment import Visit, Measurement
+from app.models.user import User
 from app.api import auth, patients, wounds, assessments, reports, assistant
+from app.api.auth import get_current_user, require_role
+from app.models.audit import AuditLog
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wound_ai.main")
@@ -37,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Production-Grade AI Wound Segmentation & Healing Monitoring System (U-Net decision support prototype)",
+    description="Production-Grade AI Wound Segmentation & Healing Monitoring System (CV color segmentation decision support prototype)",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -66,15 +69,21 @@ app.include_router(assistant.router, prefix=settings.API_V1_STR)
 
 @app.get("/api/health")
 def health_check():
+    from app.ml.segmentation import segmentation_engine
+    method = "unet" if segmentation_engine._unet_available else "cv_color"
     return {
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": "1.0.0",
-        "model_status": "Pretrained U-Net Ready"
+        "segmentation_method": method,
+        "model_status": f"{'U-Net' if method == 'unet' else 'CV Color'} Segmentation Active"
     }
 
 @app.get("/api/dashboard/summary")
-def get_dashboard_summary(db: Session = Depends(get_db)):
+def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     total_patients = db.query(Patient).count()
     active_wounds = db.query(WoundCase).filter(WoundCase.status == "Active").count()
     
@@ -110,3 +119,65 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
         "attention_wounds": attention_wounds,
         "recent_assessments": recent_assessments
     }
+
+@app.get("/api/dashboard/healing-trend")
+def get_dashboard_healing_trend(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns aggregate healing trend data from real database measurements.
+    Groups measurements by visit number and computes average area across
+    all wound cases at each visit point.
+    """
+    from app.models.assessment import Measurement, Visit
+    from sqlalchemy import func
+
+    # Get all measurements joined with visits, ordered by visit number
+    results = db.query(
+        Visit.visit_number,
+        func.avg(Measurement.area_mm2).label("avg_area_mm2"),
+        func.min(Visit.visit_date).label("earliest_date")
+    ).join(
+        Measurement, Measurement.visit_id == Visit.id
+    ).group_by(
+        Visit.visit_number
+    ).order_by(
+        Visit.visit_number.asc()
+    ).all()
+
+    trend = []
+    for row in results:
+        trend.append({
+            "visit_number": row.visit_number,
+            "label": f"Visit {row.visit_number}",
+            "avg_area_mm2": round(float(row.avg_area_mm2), 1) if row.avg_area_mm2 else 0,
+            "date": row.earliest_date.isoformat() if row.earliest_date else None
+        })
+
+    return trend
+
+
+@app.get("/api/audit-logs")
+def list_audit_logs(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    """Return recent audit log entries. Admin-only."""
+    entries = db.query(AuditLog).order_by(
+        AuditLog.timestamp.desc()
+    ).limit(min(limit, 500)).all()
+
+    return [
+        {
+            "id": e.id,
+            "user_id": e.user_id,
+            "action": e.action,
+            "target_type": e.target_type,
+            "target_id": e.target_id,
+            "details": e.details,
+            "timestamp": e.timestamp.isoformat() if e.timestamp else None
+        }
+        for e in entries
+    ]

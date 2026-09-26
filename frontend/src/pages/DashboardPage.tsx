@@ -14,35 +14,48 @@ import {
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
-import { DashboardSummary } from '../types';
+import { DashboardSummary, HealingTrendPoint } from '../types';
 import api from '../services/api';
 
 export const DashboardPage: React.FC = () => {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [trendData, setTrendData] = useState<HealingTrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchSummary = async () => {
+    const fetchData = async () => {
       try {
-        const res = await api.get('/dashboard/summary');
-        setSummary(res.data);
+        const [summaryRes, trendRes] = await Promise.all([
+          api.get('/dashboard/summary'),
+          api.get('/dashboard/healing-trend')
+        ]);
+        setSummary(summaryRes.data);
+        setTrendData(trendRes.data);
       } catch (err) {
-        console.error('Error fetching dashboard summary:', err);
+        console.error('Error fetching dashboard data:', err);
       } finally {
         setLoading(false);
       }
     };
-    fetchSummary();
+    fetchData();
   }, []);
 
-  // Demo trend data for longitudinal dashboard chart
-  const sampleTrend = [
-    { visit: 'Visit 1', area: 320 },
-    { visit: 'Visit 2', area: 275 },
-    { visit: 'Visit 3', area: 230 },
-    { visit: 'Visit 4', area: 195 },
-  ];
+  // Real healing trend data from the backend
+  const chartData = trendData.map((t) => ({
+    visit: t.label,
+    area: t.avg_area_mm2,
+  }));
+
+  // Calculate overall reduction from real data
+  let overallReduction = 0;
+  if (chartData.length > 1) {
+    const initial = chartData[0].area;
+    const latest = chartData[chartData.length - 1].area;
+    if (initial > 0) {
+      overallReduction = Math.round(((initial - latest) / initial) * 1000) / 10;
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -57,7 +70,7 @@ export const DashboardPage: React.FC = () => {
             Wound Healing Clinical Dashboard
           </h2>
           <p className="text-xs md:text-sm text-slate-300 max-w-xl">
-            Automated U-Net segmentation, calibration-based area calculation, and longitudinal progress tracking.
+            Automated CV color segmentation, calibration-based area calculation, and longitudinal progress tracking.
           </p>
         </div>
 
@@ -136,33 +149,41 @@ export const DashboardPage: React.FC = () => {
         <Card className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Wound Healing Trajectory (Sample)</h3>
-              <p className="text-xs text-slate-500">Average surface area reduction (mm²) over sequential visits</p>
+              <h3 className="font-bold text-slate-900 text-base">Wound Healing Trajectory</h3>
+              <p className="text-xs text-slate-500">Average surface area (mm²) across all wound cases by visit</p>
             </div>
-            <span className="bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold border border-emerald-200">
-              -39% Overall Reduction
-            </span>
+            {chartData.length > 1 && (
+              <span className="bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold border border-emerald-200">
+                {overallReduction > 0 ? `-${overallReduction}%` : `${overallReduction}%`} Overall Change
+              </span>
+            )}
           </div>
 
           <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={sampleTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="visit" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} unit=" mm²" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
-                  formatter={(val: any) => [`${val} mm²`, 'Surface Area']}
-                />
-                <Area type="monotone" dataKey="area" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorArea)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="visit" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} unit=" mm²" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                    formatter={(val: any) => [`${val} mm²`, 'Avg Surface Area']}
+                  />
+                  <Area type="monotone" dataKey="area" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorArea)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-10 text-slate-400 text-xs">
+                No healing trend data available yet. Complete assessments to see the trajectory.
+              </div>
+            )}
           </div>
         </Card>
 

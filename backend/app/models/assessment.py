@@ -24,13 +24,13 @@ class WoundImage(Base):
     __tablename__ = "wound_images"
 
     id = Column(Integer, primary_key=True, index=True)
-    visit_id = Column(Integer, ForeignKey("visits.id", ondelete="CASCADE"), nullable=False, unique=True)
+    visit_id = Column(Integer, ForeignKey("visits.id", ondelete="CASCADE"), nullable=True, unique=True)
     original_path = Column(String, nullable=False)
     image_width = Column(Integer, nullable=False)
     image_height = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    visit = relationship("Visit", back_populates="image")
+    visit = relationship("Visit", back_populates="image", foreign_keys=[visit_id])
     calibration = relationship("Calibration", uselist=False, back_populates="image", cascade="all, delete-orphan")
     segmentation = relationship("SegmentationResult", uselist=False, back_populates="image", cascade="all, delete-orphan")
 
@@ -58,6 +58,9 @@ class SegmentationResult(Base):
     overlay_path = Column(String, nullable=False)
     confidence_score = Column(Float, nullable=False) # e.g. 0.94 (94%)
     wound_pixel_area = Column(Integer, nullable=False)
+    width_px = Column(Integer, nullable=False, default=0)
+    height_px = Column(Integer, nullable=False, default=0)
+    segmentation_method = Column(String, default="cv_color") # cv_color, unet
     processing_status = Column(String, default="Completed") # Completed, Failed, Manual_Adjusted
     created_at = Column(DateTime, default=datetime.utcnow)
 

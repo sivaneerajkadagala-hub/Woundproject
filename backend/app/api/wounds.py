@@ -2,13 +2,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_role
 from app.models.user import User
 from app.models.patient import Patient
 from app.models.wound import WoundCase
 from app.models.assessment import Visit, Measurement, WoundImage, SegmentationResult
 from app.schemas.wound import WoundCaseCreate, WoundCaseUpdate, WoundCaseResponse
 from app.schemas.assessment import HealingHistoryPoint
+from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/wounds", tags=["Wound Cases"])
 
@@ -60,7 +61,7 @@ def list_wound_cases(
 def create_wound_case(
     wound_in: WoundCaseCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role("Admin", "Clinician"))
 ):
     pat = db.query(Patient).filter(Patient.id == wound_in.patient_id).first()
     if not pat:
@@ -80,6 +81,10 @@ def create_wound_case(
     db.add(w)
     db.commit()
     db.refresh(w)
+
+    log_action(db, user_id=current_user.id, action="wound_create",
+               target_type="WoundCase", target_id=str(w.id),
+               details=f"Created wound case {w.case_code}")
 
     res = WoundCaseResponse.model_validate(w)
     res.patient_code = pat.patient_code
@@ -121,6 +126,74 @@ def get_wound_case(
     res.healing_status = healing_st
     res.visits_count = v_count
     return res
+
+@router.put("/{id}", response_model=WoundCaseResponse)
+def update_wound_case(
+    id: int,
+    wound_in: WoundCaseUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin", "Clinician"))
+):
+    w = db.query(WoundCase).filter(WoundCase.id == id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Wound case not found")
+
+    for field, value in wound_in.model_dump(exclude_unset=True).items():
+        setattr(w, field, value)
+
+    db.commit()
+    db.refresh(w)
+
+    log_action(db, user_id=current_user.id, action="wound_update",
+               target_type="WoundCase", target_id=str(w.id),
+               details=f"Updated wound case {w.case_code}")
+
+    pat = db.query(Patient).filter(Patient.id == w.patient_id).first()
+    v_count = db.query(Visit).filter(Visit.wound_id == w.id).count()
+    latest_visit = db.query(Visit).filter(Visit.wound_id == w.id).order_by(Visit.visit_number.desc()).first()
+    latest_area = None
+    latest_date = None
+    healing_st = "Baseline"
+    if latest_visit:
+        latest_date = latest_visit.visit_date
+        meas = db.query(Measurement).filter(Measurement.visit_id == latest_visit.id).first()
+        if meas:
+            latest_area = meas.area_mm2
+            healing_st = meas.healing_status
+
+    res = WoundCaseResponse.model_validate(w)
+    res.patient_code = pat.patient_code if pat else "N/A"
+    res.patient_name = pat.full_name if pat else "N/A"
+    res.latest_area_mm2 = latest_area
+    res.latest_visit_date = latest_date
+    res.healing_status = healing_st
+    res.visits_count = v_count
+    return res
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_wound_case(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    """
+    Soft-delete equivalent: archives the wound case by setting status to 'Closed'
+    rather than physically deleting the record. This preserves clinical history.
+    A hard delete is intentionally not provided for healthcare safety.
+    """
+    w = db.query(WoundCase).filter(WoundCase.id == id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Wound case not found")
+
+    # Soft-delete: mark as Closed instead of physical deletion
+    w.status = "Closed"
+    db.commit()
+    db.refresh(w)
+
+    log_action(db, user_id=current_user.id, action="wound_archive",
+               target_type="WoundCase", target_id=str(w.id),
+               details=f"Archived (closed) wound case {w.case_code}")
+    return None
 
 @router.get("/{id}/history", response_model=List[HealingHistoryPoint])
 def get_wound_history(

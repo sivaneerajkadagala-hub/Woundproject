@@ -61,12 +61,30 @@ class PDFReportGenerator:
             textColor=colors.HexColor('#94a3b8'),
             spaceBefore=15
         )
+        warning_style = ParagraphStyle(
+            'ClinicalWarning',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=12,
+            textColor=colors.HexColor('#991b1b'),
+            spaceBefore=4,
+            spaceAfter=4,
+        )
+        warning_title_style = ParagraphStyle(
+            'ClinicalWarningTitle',
+            parent=styles['Heading2'],
+            fontSize=11,
+            leading=14,
+            textColor=colors.HexColor('#991b1b'),
+            spaceBefore=0,
+            spaceAfter=4,
+        )
 
         story = []
 
         # Title Header
         story.append(Paragraph("AI WOUND ASSESSMENT & HEALING REPORT", title_style))
-        story.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Decision Support Tool", subtitle_style))
+        story.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Decision Support Tool — Clinical Review Required", subtitle_style))
         story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=15))
 
         # Patient & Case Summary Table
@@ -106,15 +124,24 @@ class PDFReportGenerator:
         conf_val = assessment_data.get("confidence_score", 0.92)
         pct_change = assessment_data.get("percentage_change")
         status_txt = assessment_data.get("healing_status", "Baseline")
+        seg_method = assessment_data.get("segmentation_method", "cv_color")
 
         pct_str = f"{pct_change}%" if pct_change is not None else "--"
+
+        # Dynamic score label based on actual segmentation method
+        if seg_method == "unet":
+            score_label = "U-Net Confidence"
+            score_note = "Automated segmentation threshold"
+        else:
+            score_label = "CV Heuristic Score"
+            score_note = "Adaptive color-based segmentation score"
 
         metrics_data = [
             [Paragraph("<b>Metric</b>", normal_style), Paragraph("<b>Value</b>", normal_style), Paragraph("<b>Clinical Notes</b>", normal_style)],
             [Paragraph("Wound Surface Area (mm²)", normal_style), Paragraph(f"<b>{area_mm2} mm²</b>", normal_style), Paragraph(f"Equivalent to {area_cm2} cm²", normal_style)],
             [Paragraph("Max Width / Height", normal_style), Paragraph(f"{width_mm} mm x {height_mm} mm", normal_style), Paragraph("Bounding contour dimension", normal_style)],
             [Paragraph("Calibration Scale", normal_style), Paragraph(f"{scale_val:.4f} mm/px", normal_style), Paragraph("Linear scale factor", normal_style)],
-            [Paragraph("U-Net Confidence", normal_style), Paragraph(f"{int(conf_val*100)}%", normal_style), Paragraph("Automated segmentation threshold", normal_style)],
+            [Paragraph(score_label, normal_style), Paragraph(f"{int(conf_val*100)}%", normal_style), Paragraph(score_note, normal_style)],
             [Paragraph("Area Change vs Prior", normal_style), Paragraph(f"<b>{pct_str}</b>", normal_style), Paragraph(f"Trajectory: {status_txt}", normal_style)]
         ]
 
@@ -136,21 +163,46 @@ class PDFReportGenerator:
         mask_p = assessment_data.get("mask_path")
         overlay_p = assessment_data.get("overlay_path")
 
+        # Resolve relative paths to absolute filesystem paths within STORAGE_DIR
+        # The database stores paths relative to STORAGE_DIR (e.g. "images/foo.jpg")
+        # but os.path.exists() needs the full filesystem path.
+        storage_dir = settings.STORAGE_DIR
+        def resolve_path(p):
+            if not p:
+                return None
+            if os.path.isabs(p):
+                return p if os.path.exists(p) else None
+            abs_p = os.path.join(storage_dir, p)
+            return abs_p if os.path.exists(abs_p) else None
+
+        orig_abs = resolve_path(orig_p)
+        mask_abs = resolve_path(mask_p)
+        overlay_abs = resolve_path(overlay_p)
+
         img_cells = []
-        if orig_p and os.path.exists(orig_p):
-            img_cells.append(Image(orig_p, width=170, height=140))
+        if orig_abs:
+            try:
+                img_cells.append(Image(orig_abs, width=170, height=140))
+            except Exception:
+                img_cells.append(Paragraph("Original Image (error)", normal_style))
         else:
-            img_cells.append(Paragraph("Original Image", normal_style))
+            img_cells.append(Paragraph("Original Image (unavailable)", normal_style))
 
-        if mask_p and os.path.exists(mask_p):
-            img_cells.append(Image(mask_p, width=170, height=140))
+        if mask_abs:
+            try:
+                img_cells.append(Image(mask_abs, width=170, height=140))
+            except Exception:
+                img_cells.append(Paragraph("Binary Mask (error)", normal_style))
         else:
-            img_cells.append(Paragraph("Binary Mask", normal_style))
+            img_cells.append(Paragraph("Binary Mask (unavailable)", normal_style))
 
-        if overlay_p and os.path.exists(overlay_p):
-            img_cells.append(Image(overlay_p, width=170, height=140))
+        if overlay_abs:
+            try:
+                img_cells.append(Image(overlay_abs, width=170, height=140))
+            except Exception:
+                img_cells.append(Paragraph("Highlight Overlay (error)", normal_style))
         else:
-            img_cells.append(Paragraph("Highlight Overlay", normal_style))
+            img_cells.append(Paragraph("Highlight Overlay (unavailable)", normal_style))
 
         t_images = Table([[img_cells[0], img_cells[1], img_cells[2]]], colWidths=[180, 180, 180])
         t_images.setStyle(TableStyle([
@@ -166,13 +218,41 @@ class PDFReportGenerator:
         story.append(Paragraph("Clinician Notes", heading_style))
         story.append(Paragraph(f"<i>{notes}</i>", normal_style))
 
-        # Medical Disclaimer
+        # Clinical Review Warning Box (prominent, bordered)
         story.append(Spacer(1, 20))
+        warning_title = Paragraph("CLINICAL REVIEW REQUIRED", warning_title_style)
+        warning_body = Paragraph(
+            "AI-assisted wound segmentation is provided as a decision-support feature. "
+            "Results require review by a qualified healthcare professional and are not "
+            "intended for autonomous clinical decision-making. All segmentation masks, "
+            "wound area calculations, and healing trend assessments <b>must be reviewed "
+            "and approved by a qualified healthcare professional</b> before any clinical "
+            "decision-making or treatment adjustment. The "
+            + ("U-Net model" if seg_method == "unet" else "CV color segmentation pipeline")
+            + " may produce false positives, false negatives, or inaccurate boundaries. "
+            "Do not rely solely on automated output for patient care decisions.",
+            warning_style
+        )
+        warning_table = Table([[warning_title], [warning_body]], colWidths=[540])
+        warning_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef2f2')),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#dc2626')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(warning_table)
+
+        # Footer disclaimer
+        story.append(Spacer(1, 10))
         disclaimer_text = (
-            "<b>Medical Disclaimer & Notice:</b> This application is a technology demonstration prototype "
-            "intended for decision support and research. Automated computer vision and U-Net measurements "
-            "must be verified by a licensed healthcare professional prior to clinical decision-making. "
-            "Synthetic non-PHI data utilized."
+            "<b>Notice:</b> This application is a technology demonstration prototype "
+            "intended for decision support and research. Synthetic non-PHI data utilized. "
+            "Automated "
+            + ("U-Net" if seg_method == "unet" else "computer vision")
+            + " measurements must be verified by a "
+            "licensed healthcare professional prior to clinical decision-making."
         )
         story.append(Paragraph(disclaimer_text, disclaimer_style))
 

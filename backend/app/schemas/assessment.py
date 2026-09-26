@@ -4,7 +4,8 @@ from pydantic import BaseModel
 
 class ImageUploadResponse(BaseModel):
     image_id: int
-    original_path: str
+    original_path: str  # Relative path within STORAGE_DIR
+    image_url: str  # API URL to access the image
     image_width: int
     image_height: int
     message: str
@@ -36,7 +37,16 @@ class SegmentationResponse(BaseModel):
     overlay_path: str
     confidence_score: float
     wound_pixel_area: int
+    width_px: int
+    height_px: int
+    segmentation_method: str
     processing_status: str
+    requires_clinical_review: bool = True
+    clinical_review_notice: str = (
+        "AI-generated segmentation output is a decision-support tool only. "
+        "All results require review and approval by a qualified healthcare "
+        "professional before clinical use."
+    )
 
 class AreaCalculationRequest(BaseModel):
     image_id: int
@@ -44,6 +54,8 @@ class AreaCalculationRequest(BaseModel):
     wound_id: int
     known_size_mm: float = 10.0
     marker_size_px: Optional[float] = None
+    width_px: Optional[int] = None
+    height_px: Optional[int] = None
     notes: Optional[str] = None
 
 class MeasurementResponse(BaseModel):
@@ -74,12 +86,19 @@ class AssessmentDetailResponse(BaseModel):
     is_automatic_calibration: bool
     confidence_score: float
     wound_pixel_area: int
+    segmentation_method: str = "cv_color"
     area_mm2: float
     area_cm2: float
     width_mm: float
     height_mm: float
     percentage_change: Optional[float] = None
     healing_status: str
+    requires_clinical_review: bool = True
+    clinical_review_notice: str = (
+        "AI-generated segmentation output is a decision-support tool only. "
+        "All results require review and approval by a qualified healthcare "
+        "professional before clinical use."
+    )
 
 class HealingHistoryPoint(BaseModel):
     visit_id: int

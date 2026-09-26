@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { UploadCloud, Ruler, Cpu, CheckCircle, ArrowRight, ShieldCheck, RefreshCw } from 'lucide-react';
+import { UploadCloud, Ruler, Cpu, CheckCircle, ArrowRight, ShieldCheck, RefreshCw, AlertCircle } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { ImageUploader } from '../components/assessment/ImageUploader';
 import { CalibrationStep } from '../components/assessment/CalibrationStep';
@@ -22,11 +22,13 @@ export const NewAssessmentPage: React.FC = () => {
   const [step, setStep] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
   // Uploaded Image State
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [serverImagePath, setServerImagePath] = useState<string>('');
+  const [serverImagePath, setServerImagePath] = useState<string>(''); // Relative path
+  const [imageId, setImageId] = useState<number>(0);
   const [imgWidth, setImgWidth] = useState<number>(600);
   const [imgHeight, setImgHeight] = useState<number>(500);
 
@@ -39,12 +41,15 @@ export const NewAssessmentPage: React.FC = () => {
   // Segmentation State
   const [maskPath, setMaskPath] = useState<string>('');
   const [overlayPath, setOverlayPath] = useState<string>('');
-  const [confidenceScore, setConfidenceScore] = useState<number>(0.92);
-  const [woundPixelArea, setWoundPixelArea] = useState<number>(20000);
-  const [areaMm2, setAreaMm2] = useState<number>(312.5);
-  const [areaCm2, setAreaCm2] = useState<number>(3.125);
-  const [widthMm, setWidthMm] = useState<number>(17.7);
-  const [heightMm, setHeightMm] = useState<number>(17.7);
+  const [confidenceScore, setConfidenceScore] = useState<number>(0.85);
+  const [woundPixelArea, setWoundPixelArea] = useState<number>(0);
+  const [widthPx, setWidthPx] = useState<number>(0);
+  const [heightPx, setHeightPx] = useState<number>(0);
+  const [segmentationMethod, setSegmentationMethod] = useState<string>('cv_color');
+  const [areaMm2, setAreaMm2] = useState<number>(0);
+  const [areaCm2, setAreaCm2] = useState<number>(0);
+  const [widthMm, setWidthMm] = useState<number>(0);
+  const [heightMm, setHeightMm] = useState<number>(0);
   const [notes, setNotes] = useState<string>('');
 
   const navigate = useNavigate();
@@ -91,6 +96,7 @@ export const NewAssessmentPage: React.FC = () => {
     setImageFile(null);
     setPreviewUrl('');
     setServerImagePath('');
+    setImageId(0);
     setStep(1);
   };
 
@@ -99,6 +105,7 @@ export const NewAssessmentPage: React.FC = () => {
     if (!imageFile) return;
     setLoading(true);
     setStatusMsg('Uploading wound photograph to secure local processing engine...');
+    setErrorMsg('');
 
     try {
       const formData = new FormData();
@@ -108,11 +115,12 @@ export const NewAssessmentPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setServerImagePath(res.data.original_path);
+      setImageId(res.data.image_id);
 
       // Perform Calibration
       setStatusMsg('Detecting 10mm calibration target via OpenCV...');
       const calForm = new FormData();
-      calForm.append('image_id', '0');
+      calForm.append('image_id', res.data.image_id.toString());
       calForm.append('known_size_mm', knownSizeMm.toString());
       calForm.append('image_path', res.data.original_path);
 
@@ -125,6 +133,14 @@ export const NewAssessmentPage: React.FC = () => {
       setStep(2);
     } catch (err: any) {
       console.error('Upload / Calibration error:', err);
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setErrorMsg(`Upload or calibration failed: ${detail}`);
+      } else if (Array.isArray(detail)) {
+        setErrorMsg('Upload or calibration failed: invalid request data. Please check your image and try again.');
+      } else {
+        setErrorMsg('Upload or calibration failed. Please verify the image is valid and try again.');
+      }
     } finally {
       setLoading(false);
       setStatusMsg('');
@@ -140,14 +156,15 @@ export const NewAssessmentPage: React.FC = () => {
     recalculateArea(woundPixelArea, newScale);
   };
 
-  const recalculateArea = (pxArea: number, scale: number) => {
+  const recalculateArea = (pxArea: number, scale: number, wPx?: number, hPx?: number) => {
     const mm2 = pxArea * (scale * scale);
     const cm2 = mm2 / 100.0;
-    const wMm = Math.sqrt(pxArea) * scale;
+    const wMm = (wPx && wPx > 0 ? wPx : Math.sqrt(pxArea)) * scale;
+    const hMm = (hPx && hPx > 0 ? hPx : Math.sqrt(pxArea)) * scale;
     setAreaMm2(roundVal(mm2, 2));
     setAreaCm2(roundVal(cm2, 3));
     setWidthMm(roundVal(wMm, 1));
-    setHeightMm(roundVal(wMm, 1));
+    setHeightMm(roundVal(hMm, 1));
   };
 
   function roundVal(v: number, decimals: number) {
@@ -155,15 +172,16 @@ export const NewAssessmentPage: React.FC = () => {
     return Math.round(v * factor) / factor;
   }
 
-  // Step 2 -> 3: U-Net Segmentation
+  // Step 2 -> 3: Segmentation
   const processSegmentation = async () => {
     if (!serverImagePath) return;
     setLoading(true);
-    setStatusMsg('Running pretrained PyTorch U-Net segmentation inference...');
+    setStatusMsg('Running wound segmentation inference...');
+    setErrorMsg('');
 
     try {
       const segForm = new FormData();
-      segForm.append('image_id', '0');
+      segForm.append('image_id', imageId.toString());
       segForm.append('image_path', serverImagePath);
       segForm.append('threshold', '0.5');
 
@@ -172,12 +190,19 @@ export const NewAssessmentPage: React.FC = () => {
       setOverlayPath(segRes.data.overlay_path);
       setConfidenceScore(segRes.data.confidence_score);
       setWoundPixelArea(segRes.data.wound_pixel_area);
+      setWidthPx(segRes.data.width_px);
+      setHeightPx(segRes.data.height_px);
+      setSegmentationMethod(segRes.data.segmentation_method);
 
-      recalculateArea(segRes.data.wound_pixel_area, scaleMmPerPx);
+      recalculateArea(segRes.data.wound_pixel_area, scaleMmPerPx, segRes.data.width_px, segRes.data.height_px);
 
       setStep(3);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Segmentation error:', err);
+      const detail = err.response?.data?.detail;
+      setErrorMsg(typeof detail === 'string'
+        ? `Segmentation failed: ${detail}`
+        : 'Segmentation failed. Please try again or use a different image.');
     } finally {
       setLoading(false);
       setStatusMsg('');
@@ -189,16 +214,20 @@ export const NewAssessmentPage: React.FC = () => {
     if (!selectedWoundId) return;
     setLoading(true);
     setStatusMsg('Finalizing assessment & calculating longitudinal trajectory...');
+    setErrorMsg('');
 
     try {
       const areaForm = new FormData();
-      areaForm.append('image_id', '0');
+      areaForm.append('image_id', imageId.toString());
       areaForm.append('wound_id', selectedWoundId);
       areaForm.append('image_path', serverImagePath);
       areaForm.append('mask_path', maskPath);
       areaForm.append('overlay_path', overlayPath);
       areaForm.append('confidence_score', confidenceScore.toString());
       areaForm.append('wound_pixel_area', woundPixelArea.toString());
+      areaForm.append('width_px', widthPx.toString());
+      areaForm.append('height_px', heightPx.toString());
+      areaForm.append('segmentation_method', segmentationMethod);
       areaForm.append('scale_mm_per_px', scaleMmPerPx.toString());
       areaForm.append('marker_size_px', markerSizePx.toString());
       areaForm.append('known_size_mm', knownSizeMm.toString());
@@ -207,8 +236,12 @@ export const NewAssessmentPage: React.FC = () => {
 
       const res = await api.post('/assessments/calculate-area', areaForm);
       navigate(`/assessment/${res.data.visit_id}`);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error finalizing assessment:', err);
+      const detail = err.response?.data?.detail;
+      setErrorMsg(typeof detail === 'string'
+        ? `Failed to save assessment: ${detail}`
+        : 'Failed to save assessment. Please try again.');
     } finally {
       setLoading(false);
       setStatusMsg('');
@@ -220,7 +253,7 @@ export const NewAssessmentPage: React.FC = () => {
       {/* Title */}
       <div>
         <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">New AI Wound Assessment</h2>
-        <p className="text-xs text-slate-500">Upload photograph, perform scale calibration, and execute U-Net segmentation</p>
+        <p className="text-xs text-slate-500">Upload photograph, perform scale calibration, and execute CV color segmentation</p>
       </div>
 
       {/* Case Selector Card */}
@@ -271,9 +304,27 @@ export const NewAssessmentPage: React.FC = () => {
         </div>
         <div className={`flex items-center gap-2 ${step >= 3 ? 'text-cyan-400 font-bold' : 'text-slate-500'}`}>
           <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-xs">3</span>
-          <span>3. U-Net Segmentation & Area</span>
+          <span>3. CV Segmentation & Area</span>
         </div>
       </div>
+
+      {/* Error Message Banner */}
+      {errorMsg && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold text-rose-900 uppercase tracking-wider mb-1">Error</p>
+            <p className="text-xs text-rose-700 leading-relaxed">{errorMsg}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMsg('')}
+            className="text-rose-400 hover:text-rose-600 text-xs font-bold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Step 1: Image Upload */}
       {step === 1 && (
@@ -326,7 +377,7 @@ export const NewAssessmentPage: React.FC = () => {
               ) : (
                 <>
                   <Cpu className="w-4 h-4" />
-                  <span>Execute Pretrained U-Net Segmentation</span>
+                  <span>Execute Wound Segmentation</span>
                 </>
               )}
             </button>
@@ -347,6 +398,7 @@ export const NewAssessmentPage: React.FC = () => {
             areaCm2={areaCm2}
             widthMm={widthMm}
             heightMm={heightMm}
+            segmentationMethod={segmentationMethod}
           />
 
           {/* Clinician Notes Input */}

@@ -70,7 +70,7 @@ export const Sidebar: React.FC = () => {
           <span>Decision Support</span>
         </div>
         <p className="text-[11px] leading-tight text-slate-400">
-          U-Net segmentation prototype. Synthetic demo data only.
+          CV color segmentation prototype. Synthetic demo data only.
         </p>
       </div>
 

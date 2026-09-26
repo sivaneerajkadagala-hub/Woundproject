@@ -22,15 +22,16 @@ wheels/
 *.egg
 venv/
 .venv
+.pytest_cache/
 
 # SQLite & Storage
 *.db
 *.sqlite3
-storage/images/*
-storage/masks/*
-storage/overlays/*
-storage/reports/*
-!storage/**/.gitkeep
+backend/storage/images/*
+backend/storage/masks/*
+backend/storage/overlays/*
+backend/storage/reports/*
+!backend/storage/**/.gitkeep
 
 # Node / React
 frontend/node_modules/

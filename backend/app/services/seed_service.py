@@ -27,9 +27,9 @@ def generate_synthetic_wound_image(
         return path
 
     w, h = 600, 500
-    # Skin color background (beige/tan)
+    # Skin color background (olive/tan with H>20 to avoid red HSV detection range)
     img = np.zeros((h, w, 3), dtype=np.uint8)
-    img[:, :] = [185, 205, 235]  # BGR skin tone
+    img[:, :] = [150, 175, 210]  # BGR olive-tan skin tone (H~25, outside red range)
 
     # Add subtle skin texture noise
     noise = np.random.randint(-10, 10, (h, w, 3), dtype=np.int16)
@@ -37,8 +37,8 @@ def generate_synthetic_wound_image(
 
     # Draw wound tissue region in center (reddish pink granulation tissue)
     center = (280, 250)
-    cv2.ellipse(img, center, (wound_radius_x, wound_radius_y), 15, 0, 360, (60, 60, 210), -1)  # Dark red
-    cv2.ellipse(img, center, (int(wound_radius_x * 0.7), int(wound_radius_y * 0.7)), 15, 0, 360, (90, 90, 240), -1)  # Pink core
+    cv2.ellipse(img, center, (wound_radius_x, wound_radius_y), 15, 0, 360, (40, 40, 200), -1)  # Dark red
+    cv2.ellipse(img, center, (int(wound_radius_x * 0.7), int(wound_radius_y * 0.7)), 15, 0, 360, (80, 80, 230), -1)  # Pink core
 
     # Draw Calibration Target in top right corner (White circle with dark border, diameter = marker_radius*2)
     marker_center = (480, 100)
@@ -56,10 +56,10 @@ def seed_synthetic_demo_data(db: Session):
     wound cases, and multi-visit assessments with longitudinal area reductions.
     """
     # 1. Check if admin user exists
-    admin = db.query(User).filter(User.email == "admin@woundai.local").first()
+    admin = db.query(User).filter(User.email == "admin@woundai.com").first()
     if not admin:
         admin = User(
-            email="admin@woundai.local",
+            email="admin@woundai.com",
             hashed_password=hash_password("Admin123!"),
             full_name="Dr. Alex Rivera",
             role="Admin",
@@ -154,9 +154,12 @@ def seed_synthetic_demo_data(db: Session):
         img_bgr = cv2.imread(img_path)
         h, w = img_bgr.shape[:2]
 
+        # Store relative path (relative to STORAGE_DIR)
+        img_rel_path = os.path.relpath(img_path, settings.STORAGE_DIR).replace("\\", "/")
+
         w_img = WoundImage(
             visit_id=visit.id,
-            original_path=img_path,
+            original_path=img_rel_path,
             image_width=w,
             image_height=h
         )
@@ -178,23 +181,30 @@ def seed_synthetic_demo_data(db: Session):
         db.commit()
 
         # Run Segmentation Engine to produce real mask and overlay files
-        mask_path = os.path.join(settings.MASKS_DIR, f"mask_v{visit.id}.png")
-        overlay_path = os.path.join(settings.OVERLAYS_DIR, f"overlay_v{visit.id}.jpg")
+        mask_abs_path = os.path.join(settings.MASKS_DIR, f"mask_v{visit.id}.png")
+        overlay_abs_path = os.path.join(settings.OVERLAYS_DIR, f"overlay_v{visit.id}.jpg")
 
-        seg_res = segmentation_engine.segment_wound(img_path, mask_path, overlay_path)
+        seg_res = segmentation_engine.segment_wound(img_path, mask_abs_path, overlay_abs_path)
+
+        # Store relative paths
+        mask_rel = os.path.relpath(mask_abs_path, settings.STORAGE_DIR).replace("\\", "/")
+        overlay_rel = os.path.relpath(overlay_abs_path, settings.STORAGE_DIR).replace("\\", "/")
 
         seg = SegmentationResult(
             image_id=w_img.id,
-            mask_path=mask_path,
-            overlay_path=overlay_path,
+            mask_path=mask_rel,
+            overlay_path=overlay_rel,
             confidence_score=seg_res["confidence_score"],
             wound_pixel_area=seg_res["wound_pixel_area"],
+            width_px=seg_res["width_px"],
+            height_px=seg_res["height_px"],
+            segmentation_method=seg_res["segmentation_method"],
             processing_status="Completed"
         )
         db.add(seg)
         db.commit()
 
-        # Calculate exact area mm²
+        # Calculate exact area mm² and dimensions from bounding box
         area_mm2, area_cm2 = CalibrationEngine.calculate_area_mm2(seg_res["wound_pixel_area"], scale)
         width_mm = round(seg_res["width_px"] * scale, 1)
         height_mm = round(seg_res["height_px"] * scale, 1)

@@ -22,8 +22,28 @@ export const ReportsPage: React.FC = () => {
     fetchReports();
   }, []);
 
-  const downloadPdf = (visitId: number) => {
-    window.open(`/api/reports/${visitId}/download`, '_blank');
+  const downloadPdf = async (visitId: number) => {
+    try {
+      const token = localStorage.getItem('wound_ai_token');
+      const response = await fetch(`/api/reports/${visitId}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to generate PDF (status ${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement('a');
+      a.href = url;
+      a.download = `Wound_Report_Visit_${visitId}.pdf`;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      alert('Failed to download PDF report. Please try again.');
+    }
   };
 
   return (
@@ -43,7 +63,7 @@ export const ReportsPage: React.FC = () => {
         <div className="text-xs space-y-0.5">
           <p className="font-bold text-slate-200">Standardized PDF Export Engine</p>
           <p className="text-slate-400">
-            Reports include patient code, anatomical wound location, calibration scale, U-Net confidence score, surface area (mm² / cm²), and medical disclaimer.
+            Reports include patient code, anatomical wound location, calibration scale, segmentation score, surface area (mm² / cm²), and medical disclaimer.
           </p>
         </div>
       </div>

@@ -23,5 +23,8 @@ def test_synthetic_wound_image_generation_and_segmentation(tmp_path):
 
     assert res["processing_status"] == "Completed"
     assert res["wound_pixel_area"] > 0
+    assert res["width_px"] > 0
+    assert res["height_px"] > 0
+    assert res["segmentation_method"] in ["cv_color", "unet"]
     assert os.path.exists(mask_out)
     assert os.path.exists(overlay_out)

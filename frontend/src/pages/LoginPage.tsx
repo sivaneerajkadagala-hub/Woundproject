@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('admin@woundai.local');
+  const [email, setEmail] = useState('admin@woundai.com');
   const [password, setPassword] = useState('Admin123!');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,7 +115,7 @@ export const LoginPage: React.FC = () => {
           <div className="mt-6 p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs text-slate-400">
             <span className="font-semibold text-cyan-400 block mb-1">Demo Access Credentials:</span>
             <div className="font-mono text-[11px] space-y-0.5">
-              <p>Email: <span className="text-white">admin@woundai.local</span></p>
+              <p>Email: <span className="text-white">admin@woundai.com</span></p>
               <p>Password: <span className="text-white">Admin123!</span></p>
             </div>
           </div>

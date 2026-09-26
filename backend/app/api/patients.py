@@ -2,11 +2,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_role
 from app.models.user import User
 from app.models.patient import Patient
 from app.models.wound import WoundCase
 from app.schemas.patient import PatientCreate, PatientUpdate, PatientResponse
+from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -35,7 +36,7 @@ def list_patients(
 def create_patient(
     patient_in: PatientCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role("Admin", "Clinician"))
 ):
     # Auto-generate next synthetic Patient ID e.g. PAT-1004
     count = db.query(Patient).count() + 1001
@@ -52,6 +53,9 @@ def create_patient(
     db.commit()
     db.refresh(p)
 
+    log_action(db, user_id=current_user.id, action="patient_create",
+               target_type="Patient", target_id=str(p.id),
+               details=f"Created patient {p.patient_code}")
     res = PatientResponse.model_validate(p)
     res.active_wounds_count = 0
     return res
@@ -76,7 +80,7 @@ def update_patient(
     id: int,
     patient_in: PatientUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role("Admin", "Clinician"))
 ):
     p = db.query(Patient).filter(Patient.id == id).first()
     if not p:
@@ -87,7 +91,11 @@ def update_patient(
 
     db.commit()
     db.refresh(p)
-    
+
+    log_action(db, user_id=current_user.id, action="patient_update",
+               target_type="Patient", target_id=str(p.id),
+               details=f"Updated patient {p.patient_code}")
+
     active_wounds = db.query(WoundCase).filter(WoundCase.patient_id == p.id, WoundCase.status == "Active").count()
     res = PatientResponse.model_validate(p)
     res.active_wounds_count = active_wounds
@@ -97,11 +105,14 @@ def update_patient(
 def delete_patient(
     id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role("Admin"))
 ):
     p = db.query(Patient).filter(Patient.id == id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
+    log_action(db, user_id=current_user.id, action="patient_delete",
+               target_type="Patient", target_id=str(p.id),
+               details=f"Deleted patient {p.patient_code}")
     db.delete(p)
     db.commit()
     return None

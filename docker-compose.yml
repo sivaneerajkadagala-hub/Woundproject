@@ -25,8 +25,10 @@ services:
     container_name: wound_backend
     environment:
       DATABASE_URL: postgresql://wound_user:wound_password_2026@postgres:5432/wound_db
-      SECRET_KEY: wound-ai-super-secret-jwt-key-change-in-production-2026
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required. Set it in .env or environment.}
+      CORS_ORIGINS_STR: ${CORS_ORIGINS_STR:-http://localhost:3000,http://localhost:5173}
       STORAGE_DIR: /app/storage
+      UNET_CHECKPOINT_PATH: ${UNET_CHECKPOINT_PATH:-}
       AIMESH_BASE_URL: ${AIMESH_BASE_URL}
       AIMESH_API_KEY: ${AIMESH_API_KEY}
     ports:

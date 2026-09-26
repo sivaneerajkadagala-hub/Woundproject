@@ -86,6 +86,6 @@ class AIAssistantService:
 
         return (
             "The wound healing trajectory shows measurable progress across recorded clinical assessments. "
-            "U-Net segmentation and calibration scale provide precise quantitative surface area measurements in mm² and cm². "
+            "CV color segmentation and calibration scale provide precise quantitative surface area measurements in mm² and cm². "
             "Please consult with the primary healthcare clinician for specific treatment protocol recommendations."
         )

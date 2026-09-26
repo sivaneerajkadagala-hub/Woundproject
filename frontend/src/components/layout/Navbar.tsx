@@ -11,7 +11,7 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 px-3 py-1.5 rounded-lg text-xs font-medium">
         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
         <span>
-          <b>Decision-Support Tool:</b> Pretrained U-Net segmentation output requires qualified healthcare review.
+          <b>Decision-Support Tool:</b> AI segmentation output requires qualified healthcare review.
         </span>
       </div>
 
@@ -20,7 +20,7 @@ export const Navbar: React.FC = () => {
         {/* Model Status Pill */}
         <div className="hidden md:flex items-center gap-2 bg-cyan-50 border border-cyan-200 text-cyan-800 px-3 py-1 rounded-full text-xs font-medium">
           <Cpu className="w-3.5 h-3.5 text-cyan-600 animate-pulse" />
-          <span>U-Net Pretrained Ready</span>
+          <span>Segmentation Engine Active</span>
         </div>
 
         {/* Notifications */}

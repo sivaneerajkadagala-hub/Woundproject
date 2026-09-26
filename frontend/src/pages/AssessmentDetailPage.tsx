@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, FileText, Download, CheckCircle, ShieldAlert, Cpu } from 'lucide-react';
+import { ArrowLeft, FileText, Download, CheckCircle, ShieldAlert, Cpu, AlertTriangle } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { MaskViewer } from '../components/assessment/MaskViewer';
@@ -30,12 +30,48 @@ export const AssessmentDetailPage: React.FC = () => {
     return <div className="p-8 text-center text-slate-500">Loading visit assessment record...</div>;
   }
 
-  const downloadPdf = () => {
-    window.open(`/api/reports/${assessment.visit_id}/download`, '_blank');
+  const downloadPdf = async () => {
+    try {
+      const token = localStorage.getItem('wound_ai_token');
+      const response = await fetch(`/api/reports/${assessment.visit_id}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to generate PDF (status ${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement('a');
+      a.href = url;
+      a.download = `Wound_Report_Visit_${assessment.visit_id}.pdf`;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      alert('Failed to download PDF report. Please try again.');
+    }
   };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Decision-Support Disclaimer Banner */}
+      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm font-bold text-amber-900 uppercase tracking-wider mb-1">
+            Decision-Support Tool — Clinical Review Required
+          </p>
+          <p className="text-xs text-amber-800 leading-relaxed">
+            AI-generated segmentation output (CV color pipeline) is a decision-support
+            tool only. All segmentation masks, wound area measurements, and healing trend assessments
+            must be reviewed and approved by a qualified healthcare professional before clinical
+            decision-making or treatment adjustment.
+          </p>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -71,6 +107,9 @@ export const AssessmentDetailPage: React.FC = () => {
         areaCm2={assessment.area_cm2}
         widthMm={assessment.width_mm}
         heightMm={assessment.height_mm}
+        segmentationMethod={assessment.segmentation_method}
+        requiresClinicalReview={assessment.requires_clinical_review}
+        clinicalReviewNotice={assessment.clinical_review_notice}
       />
 
       {/* Assessment Summary Grid */}
@@ -97,8 +136,16 @@ export const AssessmentDetailPage: React.FC = () => {
               <span className="font-semibold text-cyan-700">{assessment.is_automatic_calibration ? 'OpenCV Auto' : 'Manual'}</span>
             </div>
             <div className="flex justify-between py-1">
-              <span className="text-slate-500">U-Net Model Confidence</span>
+              <span className="text-slate-500">
+                {assessment.segmentation_method === "unet" ? "Segmentation Confidence" : "Segmentation Score"}
+              </span>
               <span className="font-bold text-emerald-600">{(assessment.confidence_score * 100).toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span className="text-slate-500">Segmentation Method</span>
+              <span className="font-semibold text-cyan-700">
+                {assessment.segmentation_method === "unet" ? "U-Net Model" : "CV Color"}
+              </span>
             </div>
           </div>
         </Card>
