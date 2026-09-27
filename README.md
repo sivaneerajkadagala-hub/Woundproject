@@ -2,7 +2,7 @@
 
 A production-grade web application for automated wound segmentation, calibration-based surface area measurement, and longitudinal wound healing progress tracking.
 
-**Live Demo (Frontend):** https://saiganesh-09.github.io/Woundproject/
+**Live Demo (Frontend):** https://sivaneerajkadagala-hub.github.io/Woundproject/
 
 > Note: GitHub Pages hosts the frontend only. For full functionality (login, API, data), run the FastAPI backend locally or host it separately.
 
